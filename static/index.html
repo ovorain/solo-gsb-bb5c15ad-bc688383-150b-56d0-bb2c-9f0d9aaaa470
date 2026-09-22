@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Webhook 事件回放实验室</title>
+<style>
+  :root {
+    --bg: #f4f6fa;
+    --card: #ffffff;
+    --border: #e2e6ee;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --primary: #2f6fed;
+    --primary-dark: #2456c0;
+    --green: #1a7f37;
+    --green-bg: #e6f4ea;
+    --red: #cf222e;
+    --red-bg: #fde8e8;
+    --amber: #9a6700;
+    --amber-bg: #fff3d6;
+    --gray-bg: #eef0f4;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+      "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  header {
+    background: linear-gradient(120deg, #1e3a8a, #2f6fed);
+    color: #fff;
+    padding: 18px 28px;
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; opacity: .85; font-size: 13px; }
+  .layout {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 16px;
+    padding: 16px 28px 40px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+  }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, textarea, select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font: inherit;
+    background: #fff;
+  }
+  textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; }
+  input:focus, textarea:focus { outline: 2px solid rgba(47,111,237,.25); border-color: var(--primary); }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font: inherit;
+    font-weight: 600;
+    background: var(--primary);
+    color: #fff;
+  }
+  button:hover { background: var(--primary-dark); }
+  button.secondary { background: var(--gray-bg); color: var(--text); }
+  button.secondary:hover { background: #dde1e9; }
+  button.danger { background: var(--red-bg); color: var(--red); }
+  button.danger:hover { background: #f9d2d2; }
+  button.small { padding: 4px 10px; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .badge.success { background: var(--green-bg); color: var(--green); }
+  .badge.failed  { background: var(--red-bg); color: var(--red); }
+  .badge.running { background: var(--amber-bg); color: var(--amber); }
+  .badge.pending { background: var(--gray-bg); color: var(--muted); }
+  .status-bar {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .status-bar .counts b { color: var(--text); }
+  .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: var(--muted);
+  }
+  .dot.running { background: #e3a008; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .event-list { list-style: none; margin: 0; padding: 0; }
+  .event-item {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .event-item:hover { border-color: var(--primary); }
+  .event-item.active { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(47,111,237,.15); }
+  .event-item .meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .event-item .eid { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .event-item .preview {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #444;
+    margin-top: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .timeline-item {
+    border-left: 3px solid var(--border);
+    padding: 8px 0 8px 14px;
+    margin: 0 0 4px;
+    position: relative;
+  }
+  .timeline-item.ok { border-left-color: var(--green); }
+  .timeline-item.err { border-left-color: var(--red); }
+  .timeline-item .head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .http-code { font-family: var(--mono); font-weight: 700; font-size: 12.5px; }
+  .http-code.ok { color: var(--green); }
+  .http-code.err { color: var(--red); }
+  .timeline-item pre {
+    background: #0f172a;
+    color: #d7e0ee;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    overflow-x: auto;
+    margin: 8px 0 0;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .kv { font-family: var(--mono); font-size: 11.5px; color: var(--muted); word-break: break-all; }
+  .toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    background: #111827;
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 8px;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all .25s;
+    pointer-events: none;
+    max-width: 360px;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { background: var(--red); }
+  .muted { color: var(--muted); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  code.inline {
+    background: var(--gray-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🪝 Webhook 事件回放实验室</h1>
+  <p>导入 JSON 事件 → 按序签名投递 → 指数退避自动重试 → 时间轴回看每次请求</p>
+</header>
+
+<div class="layout">
+  <!-- 左侧：配置 + 导入 -->
+  <div>
+    <div class="card">
+      <h2>投递配置</h2>
+      <label>本地目标 URL</label>
+      <input id="cfg-url" placeholder="http://host.docker.internal:9000/hook" />
+      <div class="row">
+        <div>
+          <label>HMAC 密钥</label>
+          <input id="cfg-secret" placeholder="change-me" />
+        </div>
+        <div style="max-width:110px">
+          <label>最大重试</label>
+          <input id="cfg-retries" type="number" min="0" max="10" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>超时（秒）</label>
+          <input id="cfg-timeout" type="number" step="0.5" min="0.5" />
+        </div>
+        <div>
+          <label>退避基数（秒）</label>
+          <input id="cfg-backoff" type="number" step="0.5" min="0.1" />
+        </div>
+      </div>
+      <div class="btn-row">
+        <button onclick="saveConfig()">保存配置</button>
+        <span id="cfg-saved" class="muted" style="font-size:12px;align-self:center"></span>
+      </div>
+      <p class="hint">
+        内置演示目标：<code class="inline">/demo-target?fail_times=2</code>（前两次返回 500）、
+        <code class="inline">?status=400</code>（不可重试）、<code class="inline">?delay=8</code>（模拟超时）。
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>导入 JSON 事件</h2>
+      <textarea id="import-area" rows="10" placeholder='[&#10;  {"type":"order.created","id":"ord-1001"},&#10;  {"type":"order.paid","id":"ord-1002"}&#10;]'></textarea>
+      <div class="btn-row">
+        <button onclick="importEvents()">导入</button>
+        <button class="secondary" onclick="loadSample()">填入示例</button>
+        <input id="file-input" type="file" accept=".json,application/json" style="display:none"
+               onchange="importFile(this)" />
+        <button class="secondary" onclick="document.getElementById('file-input').click()">导入文件</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>回放控制</h2>
+      <div class="btn-row">
+        <button id="btn-replay" onclick="startReplay(false)">回放全部待处理</button>
+        <button class="secondary" onclick="startReplay(true)">仅重放失败</button>
+      </div>
+      <div class="btn-row">
+        <button class="danger" onclick="clearHistory()">清理历史记录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧：状态 + 事件列表 + 详情时间轴 -->
+  <div>
+    <div class="card">
+      <div class="status-bar">
+        <span><span id="run-dot" class="dot"></span><b id="run-state">空闲</b></span>
+        <span id="run-message" class="muted"></span>
+        <span class="counts" style="margin-left:auto">
+          共 <b id="c-total">0</b> ·
+          <span class="badge pending">待处理 <b id="c-pending">0</b></span>
+          <span class="badge running">进行中 <b id="c-running">0</b></span>
+          <span class="badge success">成功 <b id="c-success">0</b></span>
+          <span class="badge failed">失败 <b id="c-failed">0</b></span>
+        </span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>事件列表（按顺序投递）</h2>
+      <ul class="event-list" id="event-list">
+        <li class="muted">暂无事件，请先导入。</li>
+      </ul>
+    </div>
+
+    <div class="card" id="detail-card" style="display:none">
+      <h2>事件详情 / 请求时间轴</h2>
+      <div id="detail-head"></div>
+      <label style="margin-top:12px">原始载荷</label>
+      <pre id="detail-payload" style="background:var(--gray-bg);border-radius:6px;padding:10px;
+        font-family:var(--mono);font-size:12.5px;overflow-x:auto;margin:4px 0 0"></pre>
+      <div class="btn-row">
+        <button id="btn-replay-one" class="small" onclick="replayOne()">手动重放此事件</button>
+      </div>
+      <label style="margin-top:14px">投递时间轴</label>
+      <div id="timeline"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SAMPLE = [
+  { type: "order.created", id: "ord-1001", amount: 99.00, customer: "alice" },
+  { type: "order.paid", id: "ord-1002", amount: 99.00, method: "card" },
+  { type: "order.shipped", id: "ord-1003", tracking: "SF1234567890" }
+];
+
+let selectedId = null;
+let pollTimer = null;
+
+// ---------- 工具 ----------
+async function api(path, options = {}) {
+  const resp = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  const text = await resp.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!resp.ok) {
+    const detail = data && data.detail ? JSON.stringify(data.detail) : `HTTP ${resp.status}`;
+    throw new Error(detail);
+  }
+  return data;
+}
+
+function toast(message, isError = false) {
+  const el = document.getElementById("toast");
+  el.textContent = message;
+  el.className = "toast show" + (isError ? " error" : "");
+  setTimeout(() => el.className = "toast", 2600);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function shortId(id) { return id ? id.slice(0, 8) : ""; }
+
+// ---------- 配置 ----------
+async function loadConfig() {
+  const cfg = await api("/api/config");
+  document.getElementById("cfg-url").value = cfg.target_url;
+  document.getElementById("cfg-secret").value = cfg.hmac_secret;
+  document.getElementById("cfg-retries").value = cfg.max_retries;
+  document.getElementById("cfg-timeout").value = cfg.timeout;
+  document.getElementById("cfg-backoff").value = cfg.backoff_base;
+}
+
+async function saveConfig() {
+  try {
+    await api("/api/config", {
+      method: "PUT",
+      body: JSON.stringify({
+        target_url: document.getElementById("cfg-url").value,
+        hmac_secret: document.getElementById("cfg-secret").value,
+        max_retries: parseInt(document.getElementById("cfg-retries").value, 10),
+        timeout: parseFloat(document.getElementById("cfg-timeout").value),
+        backoff_base: parseFloat(document.getElementById("cfg-backoff").value),
+      }),
+    });
+    document.getElementById("cfg-saved").textContent = "✓ 已保存 " + new Date().toLocaleTimeString();
+    toast("配置已保存");
+  } catch (e) { toast("保存失败: " + e.message, true); }
+}
+
+// ---------- 导入 ----------
+function loadSample() {
+  document.getElementById("import-area").value = JSON.stringify(SAMPLE, null, 2);
+}
+
+async function importEvents() {
+  const text = document.getElementById("import-area").value.trim();
+  if (!text) return toast("请先粘贴 JSON", true);
+  try {
+    await api("/api/events", { method: "POST", body: text });
+    document.getElementById("import-area").value = "";
+    toast("事件已导入");
+    await refreshAll();
+  } catch (e) { toast("导入失败: " + e.message, true); }
+}
+
+async function importFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const text = await file.text();
+  try {
+    await api("/api/events", { method: "POST", body: text });
+    toast(`已导入文件 ${file.name}`);
+    await refreshAll();
+  } catch (e) { toast("导入失败: " + e.message, true); }
+  input.value = "";
+}
+
+// ---------- 事件列表与状态 ----------
+async function refreshStatus() {
+  const st = await api("/api/replay/status");
+  const running = st.running;
+  document.getElementById("run-dot").className = "dot" + (running ? " running" : "");
+  document.getElementById("run-state").textContent = running ? "回放进行中" : "空闲";
+  document.getElementById("run-message").textContent = st.last_message || "";
+  document.getElementById("c-total").textContent = st.counts.total;
+  document.getElementById("c-pending").textContent = st.counts.pending;
+  document.getElementById("c-running").textContent = st.counts.running;
+  document.getElementById("c-success").textContent = st.counts.success;
+  document.getElementById("c-failed").textContent = st.counts.failed;
+  document.getElementById("btn-replay").disabled = running;
+  document.getElementById("btn-replay-one") &&
+    (document.getElementById("btn-replay-one").disabled = running);
+  return running;
+}
+
+function renderEvents(events) {
+  const ul = document.getElementById("event-list");
+  if (!events.length) {
+    ul.innerHTML = '<li class="muted">暂无事件，请先导入。</li>';
+    return;
+  }
+  ul.innerHTML = events.map(ev => {
+    let preview = "";
+    try { preview = JSON.stringify(JSON.parse(ev.payload)); } catch (_) { preview = ev.payload; }
+    return `
+      <li class="event-item ${ev.id === selectedId ? "active" : ""}" onclick="selectEvent('${ev.id}')">
+        <div class="meta">
+          <span>#${ev.seq} <span class="badge ${ev.status}">${ev.status}</span>
+          ${ev.attempts ? `<span class="muted">尝试 ${ev.attempts} 次</span>` : ""}</span>
+          <span class="eid">${shortId(ev.id)}</span>
+        </div>
+        <div class="preview">${escapeHtml(preview)}</div>
+      </li>`;
+  }).join("");
+}
+
+async function selectEvent(id) {
+  selectedId = id;
+  await renderDetail();
+  const events = await api("/api/events");
+  renderEvents(events);
+}
+
+async function renderDetail() {
+  if (!selectedId) return;
+  let ev;
+  try {
+    ev = await api(`/api/events/${selectedId}`);
+  } catch (e) {
+    selectedId = null;
+    document.getElementById("detail-card").style.display = "none";
+    return;
+  }
+  document.getElementById("detail-card").style.display = "";
+  document.getElementById("detail-head").innerHTML = `
+    <div class="meta" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="badge ${ev.status}">${ev.status}</span>
+      <span class="kv">事件 ID: ${ev.id}</span>
+      <span class="muted">创建于 ${ev.created_at}</span>
+    </div>
+    ${ev.last_error ? `<p style="color:var(--red);margin:8px 0 0;font-size:12.5px">
+      最终错误：${escapeHtml(ev.last_error)}</p>` : ""}`;
+  let pretty = ev.payload;
+  try { pretty = JSON.stringify(JSON.parse(ev.payload), null, 2); } catch (_) {}
+  document.getElementById("detail-payload").textContent = pretty;
+  renderTimeline(ev.deliveries || []);
+}
+
+function renderTimeline(deliveries) {
+  const el = document.getElementById("timeline");
+  if (!deliveries.length) {
+    el.innerHTML = '<p class="muted" style="font-size:12.5px">尚无投递记录。</p>';
+    return;
+  }
+  el.innerHTML = deliveries.map(d => {
+    const cls = d.ok ? "ok" : "err";
+    const code = d.http_status != null
+      ? `<span class="http-code ${cls}">HTTP ${d.http_status}</span>`
+      : `<span class="http-code err">无响应</span>`;
+    let body = "";
+    if (d.error) body = `错误: ${escapeHtml(d.error)}`;
+    else if (d.response_excerpt) body = escapeHtml(d.response_excerpt);
+    return `
+      <div class="timeline-item ${cls}">
+        <div class="head">
+          <b>第 ${d.attempt} 次尝试</b>${code}
+          <span class="muted">${d.duration_ms} ms</span>
+          <span class="muted">${d.sent_at}</span>
+          ${d.will_retry ? '<span class="badge running">将退避重试</span>' : ""}
+          ${d.ok ? '<span class="badge success">成功</span>' : ""}
+        </div>
+        <div class="kv" style="margin-top:6px">
+          Idempotency-Key: ${escapeHtml(d.idempotency_key)}<br/>
+          Signature: ${escapeHtml(d.signature)}
+        </div>
+        ${body ? `<pre>${body}</pre>` : ""}
+      </div>`;
+  }).join("");
+}
+
+// ---------- 回放 ----------
+async function startReplay(onlyFailed) {
+  try {
+    await api("/api/replay", {
+      method: "POST",
+      body: JSON.stringify({ only_failed: onlyFailed }),
+    });
+    toast("回放任务已启动");
+    ensurePolling();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function replayOne() {
+  if (!selectedId) return;
+  try {
+    await api(`/api/events/${selectedId}/replay`, { method: "POST" });
+    toast("单条重放已启动");
+    ensurePolling();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function clearHistory() {
+  if (!confirm("确定清理全部事件与投递记录？此操作不可恢复。")) return;
+  try {
+    await api("/api/events", { method: "DELETE" });
+    selectedId = null;
+    document.getElementById("detail-card").style.display = "none";
+    toast("历史记录已清理");
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------- 轮询 ----------
+function ensurePolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(tick, 1000);
+}
+
+async function tick() {
+  const running = await refreshStatus();
+  const events = await api("/api/events");
+  renderEvents(events);
+  if (selectedId) await renderDetail();
+  if (!running && pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+async function refreshAll() {
+  await refreshStatus();
+  const events = await api("/api/events");
+  renderEvents(events);
+  if (selectedId) await renderDetail();
+}
+
+// ---------- 启动 ----------
+(async function init() {
+  await loadConfig();
+  await refreshAll();
+  if (await refreshStatus()) ensurePolling();
+})();
+</script>
+</body>
+</html>
