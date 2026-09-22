@@ -1,0 +1,13 @@
+services:
+  webhook-replay:
+    build: .
+    image: webhook-replay-lab:latest
+    container_name: webhook-replay-lab
+    ports:
+      - "8000:8000"
+    volumes:
+      - replay-data:/data
+    restart: unless-stopped
+
+volumes:
+  replay-data:
